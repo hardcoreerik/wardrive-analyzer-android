@@ -64,6 +64,7 @@ class WardriveRepository(
                 pcapBytes = 0,
                 pcapApCount = 0,
                 pcapStationCount = 0,
+                handshakeConfidence = "NONE",
                 riskScore = risk
             )
         )
@@ -89,7 +90,8 @@ class WardriveRepository(
             hiddenNetworks = 0,
             pcapEapol = summary.eapolCount,
             apCount = summary.apCount,
-            stationCount = summary.stationCount
+            stationCount = summary.stationCount,
+            handshakeConfidence = summary.handshakeConfidence
         )
         val runId = db.runDao().insert(
             RunEntity(
@@ -103,6 +105,7 @@ class WardriveRepository(
                 pcapBytes = summary.totalBytes,
                 pcapApCount = summary.apCount,
                 pcapStationCount = summary.stationCount,
+                handshakeConfidence = summary.handshakeConfidence,
                 riskScore = risk
             )
         )
@@ -112,7 +115,7 @@ class WardriveRepository(
                     runId = runId,
                     reportType = "pcap_summary",
                     title = "PCAP Summary",
-                    body = "Packets=${summary.packetCount}, EAPOL=${summary.eapolCount}, APs=${summary.apCount}, Stations=${summary.stationCount}, MgmtFrames=${summary.managementFrameCount}, Bytes=${summary.totalBytes}. Risk score: $risk/100.",
+                    body = "Packets=${summary.packetCount}, EAPOL=${summary.eapolCount}, Handshake=${summary.handshakeConfidence}, APs=${summary.apCount}, Stations=${summary.stationCount}, MgmtFrames=${summary.managementFrameCount}, Bytes=${summary.totalBytes}. Risk score: $risk/100.",
                     createdAt = importedAt
                 )
             )
@@ -125,12 +128,19 @@ class WardriveRepository(
         hiddenNetworks: Int,
         pcapEapol: Int,
         apCount: Int,
-        stationCount: Int
+        stationCount: Int,
+        handshakeConfidence: String = "NONE"
     ): Int {
         val openRisk = (openNetworks * 3).coerceAtMost(35)
         val hiddenRisk = (hiddenNetworks * 2).coerceAtMost(15)
         val eapolRisk = (pcapEapol / 2).coerceAtMost(30)
         val densityRisk = ((apCount + stationCount) / 5).coerceAtMost(20)
-        return (openRisk + hiddenRisk + eapolRisk + densityRisk).coerceIn(0, 100)
+        val handshakeRisk = when (handshakeConfidence) {
+            "4WAY" -> 20
+            "PARTIAL" -> 10
+            "EAPOL" -> 4
+            else -> 0
+        }
+        return (openRisk + hiddenRisk + eapolRisk + densityRisk + handshakeRisk).coerceIn(0, 100)
     }
 }

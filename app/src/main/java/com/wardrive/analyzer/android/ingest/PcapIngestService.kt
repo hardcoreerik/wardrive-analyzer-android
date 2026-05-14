@@ -12,7 +12,8 @@ data class PcapSummary(
     val totalBytes: Long,
     val apCount: Int,
     val stationCount: Int,
-    val managementFrameCount: Int
+    val managementFrameCount: Int,
+    val handshakeConfidence: String
 )
 
 class PcapIngestService {
@@ -20,7 +21,7 @@ class PcapIngestService {
         val stream = BufferedInputStream(inputStream)
         val header = ByteArray(24)
         if (stream.read(header) != 24) {
-            return PcapSummary(0, 0, 0, 0, 0, 0)
+            return PcapSummary(0, 0, 0, 0, 0, 0, "NONE")
         }
 
         val order = when {
@@ -37,6 +38,7 @@ class PcapIngestService {
         var managementFrameCount = 0
         val apSet = linkedSetOf<String>()
         val stationSet = linkedSetOf<String>()
+        val eapolMessages = linkedSetOf<Int>()
 
         val pktHeader = ByteArray(16)
         while (true) {
@@ -54,6 +56,7 @@ class PcapIngestService {
 
             if (containsEapol(payload)) {
                 eapolCount += 1
+                detectHandshakeMessage(payload)?.let { eapolMessages += it }
             }
 
             val frame = extractDot11Frame(payload, network) ?: continue
@@ -71,7 +74,8 @@ class PcapIngestService {
             totalBytes = totalBytes,
             apCount = apSet.size,
             stationCount = stationSet.size,
-            managementFrameCount = managementFrameCount
+            managementFrameCount = managementFrameCount,
+            handshakeConfidence = handshakeConfidence(eapolCount, eapolMessages)
         )
     }
 
@@ -123,5 +127,37 @@ class PcapIngestService {
             }
         }
         return false
+    }
+
+    private fun detectHandshakeMessage(data: ByteArray): Int? {
+        for (i in 0 until data.size - 8) {
+            if (data[i] != 0x88.toByte() || data[i + 1] != 0x8e.toByte()) continue
+            val eapolStart = i + 2
+            if (eapolStart + 7 >= data.size) continue
+            val eapolType = data[eapolStart + 1].toInt() and 0xFF
+            if (eapolType != 3) continue
+            val keyInfo = ((data[eapolStart + 5].toInt() and 0xFF) shl 8) or
+                (data[eapolStart + 6].toInt() and 0xFF)
+
+            val install = (keyInfo and 0x0040) != 0
+            val ack = (keyInfo and 0x0080) != 0
+            val mic = (keyInfo and 0x0100) != 0
+            val secure = (keyInfo and 0x0200) != 0
+
+            if (ack && !mic) return 1
+            if (!ack && mic && !secure) return 2
+            if (ack && mic && install) return 3
+            if (!ack && mic && secure) return 4
+        }
+        return null
+    }
+
+    private fun handshakeConfidence(eapolCount: Int, msgs: Set<Int>): String {
+        if (eapolCount <= 0) return "NONE"
+        return when {
+            msgs.containsAll(setOf(1, 2, 3, 4)) -> "4WAY"
+            msgs.isNotEmpty() -> "PARTIAL"
+            else -> "EAPOL"
+        }
     }
 }
