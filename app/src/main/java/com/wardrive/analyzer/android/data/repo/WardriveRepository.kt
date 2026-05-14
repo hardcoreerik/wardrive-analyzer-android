@@ -6,7 +6,6 @@ import com.wardrive.analyzer.android.data.model.ReportEntity
 import com.wardrive.analyzer.android.data.model.RunEntity
 import com.wardrive.analyzer.android.ingest.PcapIngestService
 import com.wardrive.analyzer.android.ingest.WardriveLogParser
-import kotlinx.coroutines.flow.Flow
 import java.io.BufferedReader
 import java.io.InputStream
 import java.util.UUID
@@ -43,16 +42,29 @@ class WardriveRepository(
             )
         }
         db.evidenceDao().insertAll(rows)
+        val openNetworks = rows.count { it.security.contains("OPEN", ignoreCase = true) }
+        val hiddenNetworks = rows.count { it.ssid == "<hidden>" }
+        val risk = computeRiskScore(
+            openNetworks = openNetworks,
+            hiddenNetworks = hiddenNetworks,
+            pcapEapol = 0,
+            apCount = rows.map { it.bssid }.toSet().size,
+            stationCount = 0
+        )
+
         val runId = db.runDao().insert(
             RunEntity(
-                name = "Import ${sourceName}",
+                name = "Import $sourceName",
                 createdAt = importedAt,
                 evidenceCount = rows.size,
-                openNetworkCount = rows.count { it.security.contains("OPEN", ignoreCase = true) },
-                hiddenSsidCount = rows.count { it.ssid == "<hidden>" },
+                openNetworkCount = openNetworks,
+                hiddenSsidCount = hiddenNetworks,
                 pcapPacketCount = 0,
                 pcapEapolCount = 0,
-                pcapBytes = 0
+                pcapBytes = 0,
+                pcapApCount = 0,
+                pcapStationCount = 0,
+                riskScore = risk
             )
         )
         db.reportDao().insertAll(
@@ -61,7 +73,7 @@ class WardriveRepository(
                     runId = runId,
                     reportType = "summary",
                     title = "Run Summary",
-                    body = "Imported ${rows.size} rows from $sourceName.",
+                    body = "Imported ${rows.size} rows from $sourceName. Risk score: $risk/100.",
                     createdAt = importedAt
                 )
             )
@@ -72,16 +84,26 @@ class WardriveRepository(
     suspend fun importPcap(sourceName: String, inputStream: InputStream): Int {
         val summary = pcapIngestService.summarize(inputStream)
         val importedAt = System.currentTimeMillis()
+        val risk = computeRiskScore(
+            openNetworks = 0,
+            hiddenNetworks = 0,
+            pcapEapol = summary.eapolCount,
+            apCount = summary.apCount,
+            stationCount = summary.stationCount
+        )
         val runId = db.runDao().insert(
             RunEntity(
-                name = "PCAP ${sourceName}",
+                name = "PCAP $sourceName",
                 createdAt = importedAt,
                 evidenceCount = 0,
                 openNetworkCount = 0,
                 hiddenSsidCount = 0,
                 pcapPacketCount = summary.packetCount,
                 pcapEapolCount = summary.eapolCount,
-                pcapBytes = summary.totalBytes
+                pcapBytes = summary.totalBytes,
+                pcapApCount = summary.apCount,
+                pcapStationCount = summary.stationCount,
+                riskScore = risk
             )
         )
         db.reportDao().insertAll(
@@ -90,11 +112,25 @@ class WardriveRepository(
                     runId = runId,
                     reportType = "pcap_summary",
                     title = "PCAP Summary",
-                    body = "Parsed ${summary.packetCount} packets, ${summary.eapolCount} EAPOL signatures, ${summary.totalBytes} bytes from $sourceName.",
+                    body = "Packets=${summary.packetCount}, EAPOL=${summary.eapolCount}, APs=${summary.apCount}, Stations=${summary.stationCount}, MgmtFrames=${summary.managementFrameCount}, Bytes=${summary.totalBytes}. Risk score: $risk/100.",
                     createdAt = importedAt
                 )
             )
         )
         return summary.packetCount
+    }
+
+    private fun computeRiskScore(
+        openNetworks: Int,
+        hiddenNetworks: Int,
+        pcapEapol: Int,
+        apCount: Int,
+        stationCount: Int
+    ): Int {
+        val openRisk = (openNetworks * 3).coerceAtMost(35)
+        val hiddenRisk = (hiddenNetworks * 2).coerceAtMost(15)
+        val eapolRisk = (pcapEapol / 2).coerceAtMost(30)
+        val densityRisk = ((apCount + stationCount) / 5).coerceAtMost(20)
+        return (openRisk + hiddenRisk + eapolRisk + densityRisk).coerceIn(0, 100)
     }
 }

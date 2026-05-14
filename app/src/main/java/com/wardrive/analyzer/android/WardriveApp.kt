@@ -4,17 +4,17 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +61,9 @@ fun WardriveApp(viewModel: WardriveViewModel) {
         }
     }
 
+    val totalPcapPackets = runs.sumOf { it.pcapPacketCount }
+    val highRiskRuns = runs.count { it.riskScore >= 60 }
+
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -93,6 +96,8 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                 openCount = openCount,
                 runCount = runs.size,
                 reportCount = reports.size,
+                totalPcapPackets = totalPcapPackets,
+                highRiskRuns = highRiskRuns,
                 lastImport = runs.firstOrNull()?.name ?: "No imports yet"
             )
             Tab.Evidence -> EvidenceScreen(Modifier.padding(padding), evidence)

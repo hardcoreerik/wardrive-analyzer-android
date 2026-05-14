@@ -18,6 +18,8 @@ fun DashboardScreen(
     openCount: Int,
     runCount: Int,
     reportCount: Int,
+    totalPcapPackets: Int,
+    highRiskRuns: Int,
     lastImport: String
 ) {
     Column(
@@ -29,6 +31,8 @@ fun DashboardScreen(
         MetricCard("Open Networks", openCount.toString())
         MetricCard("Runs", runCount.toString())
         MetricCard("Reports", reportCount.toString())
+        MetricCard("PCAP Packets", totalPcapPackets.toString())
+        MetricCard("High Risk Runs", highRiskRuns.toString())
         MetricCard("Last Import", lastImport)
     }
 }

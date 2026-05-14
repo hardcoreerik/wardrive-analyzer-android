@@ -4,11 +4,15 @@ import java.io.BufferedInputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.min
 
 data class PcapSummary(
     val packetCount: Int,
     val eapolCount: Int,
-    val totalBytes: Long
+    val totalBytes: Long,
+    val apCount: Int,
+    val stationCount: Int,
+    val managementFrameCount: Int
 )
 
 class PcapIngestService {
@@ -16,17 +20,24 @@ class PcapIngestService {
         val stream = BufferedInputStream(inputStream)
         val header = ByteArray(24)
         if (stream.read(header) != 24) {
-            return PcapSummary(0, 0, 0)
+            return PcapSummary(0, 0, 0, 0, 0, 0)
         }
+
         val order = when {
             header[0] == 0xa1.toByte() && header[1] == 0xb2.toByte() && header[2] == 0xc3.toByte() && header[3] == 0xd4.toByte() -> ByteOrder.BIG_ENDIAN
             header[0] == 0xd4.toByte() && header[1] == 0xc3.toByte() && header[2] == 0xb2.toByte() && header[3] == 0xa1.toByte() -> ByteOrder.LITTLE_ENDIAN
             else -> ByteOrder.LITTLE_ENDIAN
         }
 
+        val network = ByteBuffer.wrap(header, 20, 4).order(order).int
+
         var packetCount = 0
         var eapolCount = 0
         var totalBytes = 24L
+        var managementFrameCount = 0
+        val apSet = linkedSetOf<String>()
+        val stationSet = linkedSetOf<String>()
+
         val pktHeader = ByteArray(16)
         while (true) {
             val readHeader = stream.read(pktHeader)
@@ -37,13 +48,71 @@ class PcapIngestService {
             val payload = ByteArray(inclLen)
             val readPayload = stream.read(payload)
             if (readPayload != inclLen) break
+
             totalBytes += inclLen.toLong()
             packetCount += 1
+
             if (containsEapol(payload)) {
                 eapolCount += 1
             }
+
+            val frame = extractDot11Frame(payload, network) ?: continue
+            val parsed = parseManagementAddresses(frame)
+            if (parsed != null) {
+                managementFrameCount += 1
+                parsed.bssid?.let { apSet += it }
+                parsed.station?.let { stationSet += it }
+            }
         }
-        return PcapSummary(packetCount, eapolCount, totalBytes)
+
+        return PcapSummary(
+            packetCount = packetCount,
+            eapolCount = eapolCount,
+            totalBytes = totalBytes,
+            apCount = apSet.size,
+            stationCount = stationSet.size,
+            managementFrameCount = managementFrameCount
+        )
+    }
+
+    private data class Dot11Info(val bssid: String?, val station: String?)
+
+    private fun extractDot11Frame(payload: ByteArray, network: Int): ByteArray? {
+        return when (network) {
+            105 -> payload // DLT_IEEE802_11
+            127 -> { // DLT_IEEE802_11_RADIO (radiotap)
+                if (payload.size < 4) return null
+                val rtLen = ((payload[2].toInt() and 0xFF) or ((payload[3].toInt() and 0xFF) shl 8))
+                if (rtLen <= 0 || rtLen >= payload.size) return null
+                payload.copyOfRange(rtLen, payload.size)
+            }
+            else -> null
+        }
+    }
+
+    private fun parseManagementAddresses(frame: ByteArray): Dot11Info? {
+        if (frame.size < 24) return null
+
+        val fc = (frame[0].toInt() and 0xFF) or ((frame[1].toInt() and 0xFF) shl 8)
+        val type = (fc shr 2) and 0x3
+        if (type != 0) return null
+
+        val subtype = (fc shr 4) and 0xF
+        val addr2 = macToString(frame, 10)
+        val addr3 = macToString(frame, 16)
+
+        return when (subtype) {
+            8, 5 -> Dot11Info(bssid = addr3, station = null) // beacon/probe response
+            4, 0, 2 -> Dot11Info(bssid = addr3, station = addr2) // probe/assoc/reassoc request
+            else -> Dot11Info(bssid = addr3, station = null)
+        }
+    }
+
+    private fun macToString(frame: ByteArray, offset: Int): String {
+        val end = min(offset + 6, frame.size)
+        val bytes = frame.copyOfRange(offset, end)
+        if (bytes.size < 6) return ""
+        return bytes.joinToString(":") { b -> "%02X".format(b.toInt() and 0xFF) }
     }
 
     private fun containsEapol(data: ByteArray): Boolean {
@@ -56,4 +125,3 @@ class PcapIngestService {
         return false
     }
 }
-

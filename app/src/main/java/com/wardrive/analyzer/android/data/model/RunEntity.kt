@@ -13,5 +13,8 @@ data class RunEntity(
     val hiddenSsidCount: Int,
     val pcapPacketCount: Int = 0,
     val pcapEapolCount: Int = 0,
-    val pcapBytes: Long = 0
+    val pcapBytes: Long = 0,
+    val pcapApCount: Int = 0,
+    val pcapStationCount: Int = 0,
+    val riskScore: Int = 0
 )
