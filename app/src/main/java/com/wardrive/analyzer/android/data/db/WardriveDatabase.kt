@@ -11,7 +11,7 @@ import com.wardrive.analyzer.android.data.model.RunEntity
 
 @Database(
     entities = [EvidenceEntity::class, RunEntity::class, ReportEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class WardriveDatabase : RoomDatabase() {

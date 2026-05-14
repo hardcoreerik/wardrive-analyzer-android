@@ -23,6 +23,9 @@ fun RunsScreen(modifier: Modifier = Modifier, runs: List<RunEntity>) {
                 Column(Modifier.padding(12.dp)) {
                     Text(run.name, style = MaterialTheme.typography.titleMedium)
                     Text("Evidence ${run.evidenceCount} | Open ${run.openNetworkCount} | Hidden ${run.hiddenSsidCount}")
+                    if (run.pcapPacketCount > 0 || run.pcapBytes > 0) {
+                        Text("PCAP packets ${run.pcapPacketCount} | EAPOL ${run.pcapEapolCount} | bytes ${run.pcapBytes}")
+                    }
                     Text(DateFormat.getDateTimeInstance().format(Date(run.createdAt)))
                 }
             }

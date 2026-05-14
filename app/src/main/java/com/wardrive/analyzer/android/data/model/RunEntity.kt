@@ -10,5 +10,8 @@ data class RunEntity(
     val createdAt: Long,
     val evidenceCount: Int,
     val openNetworkCount: Int,
-    val hiddenSsidCount: Int
+    val hiddenSsidCount: Int,
+    val pcapPacketCount: Int = 0,
+    val pcapEapolCount: Int = 0,
+    val pcapBytes: Long = 0
 )

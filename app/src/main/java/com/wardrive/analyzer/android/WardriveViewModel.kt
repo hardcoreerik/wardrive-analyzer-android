@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.util.Locale
 
 class WardriveViewModel(
     private val app: WardriveApplication
@@ -27,10 +28,15 @@ class WardriveViewModel(
     fun importUri(uri: Uri) {
         viewModelScope.launch {
             val resolver = app.contentResolver
+            val fileName = uri.lastPathSegment ?: "import.csv"
+            val lower = fileName.lowercase(Locale.US)
             resolver.openInputStream(uri)?.use { stream ->
-                BufferedReader(InputStreamReader(stream)).use { reader ->
-                    val fileName = uri.lastPathSegment ?: "import.csv"
-                    repo.importLog(fileName, reader)
+                if (lower.endsWith(".pcap") || lower.endsWith(".cap")) {
+                    repo.importPcap(fileName, stream)
+                } else {
+                    BufferedReader(InputStreamReader(stream)).use { reader ->
+                        repo.importLog(fileName, reader)
+                    }
                 }
             }
         }

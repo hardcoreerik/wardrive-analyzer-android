@@ -8,10 +8,11 @@ Implemented:
 - Kotlin + Jetpack Compose app shell
 - Mission Control tabs: Dashboard, Evidence, Runs, Reports, Import
 - Local CSV/log import pipeline with Room persistence
+- Baseline PCAP/CAP ingest summary (packet count, EAPOL signature scan, bytes)
 - Run + summary report generation on import
 
 Planned next:
-- PCAP metadata ingest parity
+- Deeper PCAP protocol metadata parity (AP/station/channel extraction)
 - Rich report export parity (CSV/XLSX/KML/HTML)
 - Map visualization parity
 
