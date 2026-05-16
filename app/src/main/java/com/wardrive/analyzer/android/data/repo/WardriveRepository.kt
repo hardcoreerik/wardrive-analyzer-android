@@ -2,10 +2,24 @@ package com.wardrive.analyzer.android.data.repo
 
 import com.wardrive.analyzer.android.data.db.WardriveDatabase
 import com.wardrive.analyzer.android.data.model.EvidenceEntity
+import com.wardrive.analyzer.android.data.model.MarauderApRecordEntity
+import com.wardrive.analyzer.android.data.model.MarauderImportedFileEntity
+import com.wardrive.analyzer.android.data.model.MarauderLiveSessionEntity
+import com.wardrive.analyzer.android.data.model.MarauderSerialLogEntity
+import com.wardrive.analyzer.android.data.model.MarauderStationRecordEntity
+import com.wardrive.analyzer.android.data.model.MarauderWardriveRecordEntity
+import com.wardrive.analyzer.android.data.model.ProjectProfileEntity
 import com.wardrive.analyzer.android.data.model.ReportEntity
 import com.wardrive.analyzer.android.data.model.RunEntity
+import com.wardrive.analyzer.android.data.model.SyncRecordEntity
 import com.wardrive.analyzer.android.ingest.PcapIngestService
 import com.wardrive.analyzer.android.ingest.WardriveLogParser
+import com.wardrive.analyzer.android.marauder.MarauderDeviceInfo
+import com.wardrive.analyzer.android.marauder.MarauderImportFileType
+import com.wardrive.analyzer.android.marauder.MarauderParseResult
+import com.wardrive.analyzer.android.marauder.MarauderWardriveRecord
+import com.wardrive.analyzer.android.sync.ProjectProfile
+import com.wardrive.analyzer.android.sync.SyncRecord
 import java.io.BufferedReader
 import java.io.InputStream
 import java.util.UUID
@@ -20,6 +34,11 @@ class WardriveRepository(
     val openCount = db.evidenceDao().observeOpenCount()
     val runs = db.runDao().observeAll()
     val reports = db.reportDao().observeAll()
+    val marauderImportedFiles = db.marauderDao().observeImportedFiles()
+    val marauderApRecords = db.marauderDao().observeApRecords()
+    val marauderWardriveRecords = db.marauderDao().observeWardriveRecords()
+    val projectProfiles = db.marauderDao().observeProjects()
+    val syncRecords = db.marauderDao().observeSyncRecords()
 
     suspend fun importLog(sourceName: String, reader: BufferedReader): Int {
         val parsed = parser.parse(reader)
@@ -123,6 +142,178 @@ class WardriveRepository(
         return summary.packetCount
     }
 
+    suspend fun deleteEvidence(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        db.evidenceDao().deleteByIds(ids)
+    }
+
+    suspend fun deleteRuns(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        db.reportDao().deleteByRunIds(ids)
+        db.runDao().deleteByIds(ids)
+    }
+
+    suspend fun startMarauderSession(sessionId: String, device: MarauderDeviceInfo?) {
+        db.marauderDao().insertSession(
+            MarauderLiveSessionEntity(
+                sessionId = sessionId,
+                startedAt = System.currentTimeMillis(),
+                endedAt = null,
+                deviceName = device?.deviceName,
+                vendorId = device?.vendorId,
+                productId = device?.productId,
+                baudRate = 115200,
+                status = "connected",
+                savedLogPath = null
+            )
+        )
+    }
+
+    suspend fun finishMarauderSession(sessionId: String, savedLogPath: String?) {
+        val existing = db.marauderDao().getSession(sessionId) ?: return
+        db.marauderDao().updateSession(
+            existing.copy(
+                endedAt = System.currentTimeMillis(),
+                status = "closed",
+                savedLogPath = savedLogPath ?: existing.savedLogPath
+            )
+        )
+    }
+
+    suspend fun appendMarauderSerialLine(sessionId: String, rawLine: String, parsed: MarauderParseResult) {
+        val now = System.currentTimeMillis()
+        db.marauderDao().insertSerialLog(
+            MarauderSerialLogEntity(
+                sessionId = sessionId,
+                rawLine = rawLine,
+                seenAt = now
+            )
+        )
+        parsed.accessPoint?.let {
+            db.marauderDao().insertAp(
+                MarauderApRecordEntity(
+                    sourceType = "usb_live",
+                    sessionId = sessionId,
+                    importId = null,
+                    ssid = it.ssid,
+                    bssid = it.bssid,
+                    channel = it.channel,
+                    rssi = it.rssi,
+                    encryption = it.encryption,
+                    rawLine = it.rawLine,
+                    firstSeen = it.firstSeen,
+                    lastSeen = it.lastSeen
+                )
+            )
+        }
+        parsed.station?.let {
+            db.marauderDao().insertStation(
+                MarauderStationRecordEntity(
+                    sourceType = "usb_live",
+                    sessionId = sessionId,
+                    importId = null,
+                    mac = it.mac,
+                    associatedBssid = it.associatedBssid,
+                    rssi = it.rssi,
+                    channel = it.channel,
+                    rawLine = it.rawLine,
+                    firstSeen = it.firstSeen,
+                    lastSeen = it.lastSeen
+                )
+            )
+        }
+        parsed.wardriveRecord?.let { record ->
+            db.marauderDao().insertWardriveRecord(record.toEntity("usb_live", sessionId, null))
+        }
+    }
+
+    suspend fun recordMarauderImport(
+        importId: String,
+        originalName: String,
+        storedPath: String,
+        sizeBytes: Long,
+        sha256: String,
+        fileType: MarauderImportFileType,
+        records: List<MarauderWardriveRecord>
+    ) {
+        db.marauderDao().insertImportedFile(
+            MarauderImportedFileEntity(
+                importId = importId,
+                originalName = originalName,
+                storedPath = storedPath,
+                sizeBytes = sizeBytes,
+                sha256 = sha256,
+                importedAt = System.currentTimeMillis(),
+                fileType = fileType.name.lowercase(),
+                parsedRecordCount = records.size
+            )
+        )
+        if (records.isNotEmpty()) {
+            db.marauderDao().insertWardriveRecords(
+                records.map { it.toEntity("sd_import", null, importId) }
+            )
+        }
+    }
+
+    suspend fun rawMarauderSessionLog(sessionId: String): String =
+        db.marauderDao().getRawLogLines(sessionId).joinToString("\n")
+
+    suspend fun marauderApRecordsSnapshot(): List<MarauderApRecordEntity> =
+        db.marauderDao().getApRecords()
+
+    suspend fun marauderWardriveRecordsSnapshot(): List<MarauderWardriveRecordEntity> =
+        db.marauderDao().getWardriveRecords()
+
+    suspend fun replaceProjectProfiles(projects: List<ProjectProfile>) {
+        db.marauderDao().upsertProjects(
+            projects.map {
+                ProjectProfileEntity(
+                    slug = it.slug,
+                    displayName = it.displayName,
+                    dropboxPath = it.dropboxPath,
+                    isActive = it.isActive,
+                    lastSyncAt = it.lastSyncAt
+                )
+            }
+        )
+    }
+
+    suspend fun upsertProject(project: ProjectProfile) {
+        db.marauderDao().upsertProject(
+            ProjectProfileEntity(
+                slug = project.slug,
+                displayName = project.displayName,
+                dropboxPath = project.dropboxPath,
+                isActive = project.isActive,
+                lastSyncAt = project.lastSyncAt
+            )
+        )
+    }
+
+    suspend fun projectProfilesSnapshot(): List<ProjectProfileEntity> =
+        db.marauderDao().getProjects()
+
+    suspend fun setActiveProject(slug: String) {
+        db.marauderDao().setActiveProject(slug)
+    }
+
+    suspend fun activeProjectProfile(): ProjectProfileEntity? =
+        db.marauderDao().getActiveProject()
+
+    suspend fun addSyncRecord(record: SyncRecord) {
+        db.marauderDao().insertSyncRecord(
+            SyncRecordEntity(
+                projectSlug = record.projectSlug,
+                direction = record.direction,
+                path = record.path,
+                status = record.status,
+                timestamp = record.timestamp,
+                conflictFlag = record.conflictFlag,
+                message = record.message
+            )
+        )
+    }
+
     private fun computeRiskScore(
         openNetworks: Int,
         hiddenNetworks: Int,
@@ -143,4 +334,25 @@ class WardriveRepository(
         }
         return (openRisk + hiddenRisk + eapolRisk + densityRisk + handshakeRisk).coerceIn(0, 100)
     }
+
+    private fun MarauderWardriveRecord.toEntity(
+        sourceType: String,
+        sessionId: String?,
+        importId: String?
+    ): MarauderWardriveRecordEntity =
+        MarauderWardriveRecordEntity(
+            sourceType = sourceType,
+            sessionId = sessionId,
+            importId = importId,
+            ssid = ssid,
+            bssid = bssid,
+            rssi = rssi,
+            channel = channel,
+            encryption = encryption,
+            latitude = latitude,
+            longitude = longitude,
+            accuracy = accuracy,
+            timestamp = timestamp,
+            rawLine = rawLine
+        )
 }
