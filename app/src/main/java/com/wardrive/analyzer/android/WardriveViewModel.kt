@@ -8,7 +8,11 @@ import com.wardrive.analyzer.android.data.model.EvidenceEntity
 import com.wardrive.analyzer.android.data.model.ReportEntity
 import com.wardrive.analyzer.android.data.model.RunEntity
 import com.wardrive.analyzer.android.data.repo.WardriveRepository
+import com.wardrive.analyzer.android.sync.DropboxSyncService
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -18,12 +22,27 @@ class WardriveViewModel(
     private val app: WardriveApplication
 ) : ViewModel() {
     private val repo: WardriveRepository = app.repository
+    private val prefs = app.getSharedPreferences("dropbox_sync", 0)
+    private val dropboxService = DropboxSyncService()
 
     val evidence: Flow<List<EvidenceEntity>> = repo.evidence
     val runs: Flow<List<RunEntity>> = repo.runs
     val reports: Flow<List<ReportEntity>> = repo.reports
     val evidenceCount = repo.evidenceCount
     val openCount = repo.openCount
+    private val _dropboxStatus = MutableStateFlow("Dropbox not synced yet.")
+    val dropboxStatus: StateFlow<String> = _dropboxStatus.asStateFlow()
+
+    fun getDropboxToken(): String = prefs.getString("token", "") ?: ""
+    fun getDropboxFolder(): String = prefs.getString("folder", "/WardriveAnalyzerSync") ?: "/WardriveAnalyzerSync"
+
+    fun saveDropboxConfig(token: String, folder: String) {
+        prefs.edit()
+            .putString("token", token.trim())
+            .putString("folder", folder.trim().ifEmpty { "/WardriveAnalyzerSync" })
+            .apply()
+        _dropboxStatus.value = "Dropbox config saved."
+    }
 
     fun importUri(uri: Uri) {
         viewModelScope.launch {
@@ -38,6 +57,19 @@ class WardriveViewModel(
                         repo.importLog(fileName, reader)
                     }
                 }
+            }
+        }
+    }
+
+    fun syncFromDropbox() {
+        viewModelScope.launch {
+            try {
+                val token = getDropboxToken()
+                val folder = getDropboxFolder()
+                val outDir = dropboxService.syncFromDropbox(token, folder, app.filesDir)
+                _dropboxStatus.value = "Synced from Dropbox to ${outDir.absolutePath}"
+            } catch (e: Exception) {
+                _dropboxStatus.value = "Dropbox sync failed: ${e.message}"
             }
         }
     }

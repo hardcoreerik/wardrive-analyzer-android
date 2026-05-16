@@ -47,6 +47,9 @@ fun WardriveApp(viewModel: WardriveViewModel) {
     val reports by viewModel.reports.collectAsStateWithLifecycle(initialValue = emptyList())
     val evidenceCount by viewModel.evidenceCount.collectAsStateWithLifecycle(initialValue = 0)
     val openCount by viewModel.openCount.collectAsStateWithLifecycle(initialValue = 0)
+    val dropboxStatus by viewModel.dropboxStatus.collectAsStateWithLifecycle()
+    var dropboxToken by remember { mutableStateOf(viewModel.getDropboxToken()) }
+    var dropboxFolder by remember { mutableStateOf(viewModel.getDropboxFolder()) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -98,7 +101,14 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                 reportCount = reports.size,
                 totalPcapPackets = totalPcapPackets,
                 highRiskRuns = highRiskRuns,
-                lastImport = runs.firstOrNull()?.name ?: "No imports yet"
+                lastImport = runs.firstOrNull()?.name ?: "No imports yet",
+                dropboxToken = dropboxToken,
+                dropboxFolder = dropboxFolder,
+                dropboxStatus = dropboxStatus,
+                onDropboxTokenChange = { dropboxToken = it },
+                onDropboxFolderChange = { dropboxFolder = it },
+                onSaveDropboxConfig = { viewModel.saveDropboxConfig(dropboxToken, dropboxFolder) },
+                onSyncFromDropbox = { viewModel.syncFromDropbox() }
             )
             Tab.Evidence -> EvidenceScreen(Modifier.padding(padding), evidence)
             Tab.Runs -> RunsScreen(Modifier.padding(padding), runs)
