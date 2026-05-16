@@ -54,6 +54,7 @@ import java.io.InputStreamReader
 import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipInputStream
+import kotlin.math.roundToInt
 
 class WardriveViewModel(
     private val app: WardriveApplication
@@ -586,6 +587,14 @@ class WardriveViewModel(
             offsetX = (current.offsetX + dx).coerceIn(-300f, 300f),
             offsetY = (current.offsetY + dy).coerceIn(-300f, 300f)
         )
+    }
+
+    fun scaleMapViewport(zoomDelta: Float) {
+        if (!zoomDelta.isFinite()) return
+        val current = _mapViewport.value
+        val target = (current.zoom * zoomDelta).coerceIn(0.65f, 2.6f)
+        if ((target * 100f).roundToInt() == (current.zoom * 100f).roundToInt()) return
+        _mapViewport.value = current.copy(zoom = target)
     }
 
     private suspend fun importDirectory(root: File): ImportSummary {

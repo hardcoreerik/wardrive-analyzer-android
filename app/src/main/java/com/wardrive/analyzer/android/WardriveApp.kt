@@ -226,7 +226,8 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                     state = mapState,
                     onFilterChanged = { viewModel.setMapFilter(it) },
                     onSelectEntity = { viewModel.selectMapEntity(it) },
-                    onViewportChanged = { dx, dy -> viewModel.setMapViewportDelta(dx, dy) }
+                    onViewportChanged = { dx, dy -> viewModel.setMapViewportDelta(dx, dy) },
+                    onViewportScale = { zoomDelta -> viewModel.scaleMapViewport(zoomDelta) }
                 )
 
                 Tab.Files -> Column(modifier = Modifier.padding(padding).fillMaxSize()) {

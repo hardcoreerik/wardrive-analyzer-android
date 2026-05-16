@@ -45,15 +45,15 @@ fun PixelPanel(
                 ),
                 shape = RoundedCornerShape(2.dp)
             )
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (!title.isNullOrBlank()) {
             Text(
                 text = title.uppercase(),
                 color = accent,
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 letterSpacing = 1.1.sp
             )
         }
@@ -70,7 +70,7 @@ fun PixelStatCard(
     modifier: Modifier = Modifier
 ) {
     PixelPanel(title = title, modifier = modifier, accent = accent) {
-        Text(value, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 32.sp)
+        Text(value, color = accent, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
         Text(subtitle, color = Color(0xFFA9BCD5), style = MaterialTheme.typography.bodySmall)
     }
 }

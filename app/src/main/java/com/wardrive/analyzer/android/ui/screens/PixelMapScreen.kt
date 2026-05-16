@@ -2,8 +2,8 @@ package com.wardrive.analyzer.android.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -23,6 +25,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,6 +53,7 @@ fun PixelMapScreen(
     onFilterChanged: (MapEntityTypeFilter) -> Unit,
     onSelectEntity: (String?) -> Unit,
     onViewportChanged: (Float, Float) -> Unit,
+    onViewportScale: (Float) -> Unit,
     onNavigatePlaceholder: () -> Unit = {},
     onDetailPlaceholder: () -> Unit = {},
     onNotePlaceholder: () -> Unit = {}
@@ -64,11 +68,12 @@ fun PixelMapScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFF050A15), Color(0xFF03070E))))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         PixelPanel(title = "Map", accent = PixelCyan) {
-            Text("ISOMETRIC SIGNAL GRID", color = PixelCyan, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("ISOMETRIC SIGNAL GRID", color = PixelCyan, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, fontSize = 15.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PixelLegendDot(PixelCyan, "Wi-Fi")
                 PixelLegendDot(PixelPurple, "BLE")
@@ -81,13 +86,13 @@ fun PixelMapScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(250.dp)
+                    .height(270.dp)
                     .background(Color(0xFF071124))
                     .pointerInput(state.selectedEntityId) {
                         detectTapGestures { tap ->
                             val nearest = projected.minByOrNull { (_, iso) ->
-                                val x = iso.x * size.width + state.viewport.offsetX
-                                val y = iso.y * size.height + state.viewport.offsetY
+                                val x = (((iso.x - 0.5f) * state.viewport.zoom) + 0.5f) * size.width + state.viewport.offsetX
+                                val y = (((iso.y - 0.5f) * state.viewport.zoom) + 0.5f) * size.height + state.viewport.offsetY
                                 hypot((tap.x - x).toDouble(), (tap.y - y).toDouble())
                             }
                             if (nearest == null) {
@@ -98,12 +103,13 @@ fun PixelMapScreen(
                         }
                     }
                     .pointerInput(Unit) {
-                        detectDragGestures { _, drag ->
-                            onViewportChanged(drag.x, drag.y)
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            onViewportChanged(pan.x, pan.y)
+                            onViewportScale(zoom)
                         }
                     }
             ) {
-                val gridStep = size.minDimension / 10f
+                val gridStep = (size.minDimension / 10f) * state.viewport.zoom
                 for (i in -2..12) {
                     val path = Path().apply {
                         moveTo(i * gridStep + state.viewport.offsetX, state.viewport.offsetY)
@@ -122,17 +128,17 @@ fun PixelMapScreen(
                 if (state.route.points.size > 1) {
                     val routePath = Path().apply {
                         state.route.points.forEachIndexed { idx, point ->
-                            val x = point.x * size.width + state.viewport.offsetX
-                            val y = point.y * size.height + state.viewport.offsetY
+                            val x = (((point.x - 0.5f) * state.viewport.zoom) + 0.5f) * size.width + state.viewport.offsetX
+                            val y = (((point.y - 0.5f) * state.viewport.zoom) + 0.5f) * size.height + state.viewport.offsetY
                             if (idx == 0) moveTo(x, y) else lineTo(x, y)
                         }
                     }
-                    drawPath(routePath, Color(0xFF22A9FF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f))
+                    drawPath(routePath, Color(0xFF22A9FF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.2f))
                 }
 
                 projected.take(500).forEach { (entity, iso) ->
-                    val x = iso.x * size.width + state.viewport.offsetX
-                    val y = iso.y * size.height + state.viewport.offsetY
+                    val x = (((iso.x - 0.5f) * state.viewport.zoom) + 0.5f) * size.width + state.viewport.offsetX
+                    val y = (((iso.y - 0.5f) * state.viewport.zoom) + 0.5f) * size.height + state.viewport.offsetY
                     val color = when (entity.type) {
                         MapEntityType.WIFI -> PixelCyan
                         MapEntityType.BLE -> PixelPurple
@@ -140,8 +146,7 @@ fun PixelMapScreen(
                         MapEntityType.GPS -> PixelGreen
                     }
                     val selected = entity.id == state.selectedEntityId
-                    drawCircle(color = color.copy(alpha = if (selected) 0.85f else 0.62f), radius = if (selected) 10f else 7f, center = Offset(x, y))
-                    drawCircle(color = Color.Black.copy(alpha = 0.4f), radius = if (selected) 4f else 3f, center = Offset(x, y))
+                    drawPixelSprite(type = entity.type, center = Offset(x, y), color = color, scale = if (selected) 2.1f else 1.7f)
                 }
             }
         }
@@ -192,6 +197,64 @@ private fun SelectedEntityPanel(
             PixelChip("DETAILS", selected = false, onClick = onDetailPlaceholder, modifier = Modifier.weight(1f))
             PixelChip("ADD NOTE", selected = false, onClick = onNotePlaceholder, modifier = Modifier.weight(1f))
             PixelChip("NAVIGATE", selected = true, onClick = onNavigatePlaceholder, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+private fun DrawScope.drawPixelSprite(
+    type: MapEntityType,
+    center: Offset,
+    color: Color,
+    scale: Float
+) {
+    val px = scale
+    val pattern = when (type) {
+        MapEntityType.WIFI -> arrayOf(
+            "0011100",
+            "0100010",
+            "1000001",
+            "0011100",
+            "0001000",
+            "0000000",
+            "0001000"
+        )
+        MapEntityType.BLE -> arrayOf(
+            "0001000",
+            "0011000",
+            "0101000",
+            "1111110",
+            "0101000",
+            "0011000",
+            "0001000"
+        )
+        MapEntityType.HANDSHAKE -> arrayOf(
+            "1100011",
+            "1100011",
+            "0111110",
+            "0011100",
+            "0111110",
+            "1100011",
+            "1100011"
+        )
+        MapEntityType.GPS -> arrayOf(
+            "0011100",
+            "0100010",
+            "1000001",
+            "1001001",
+            "1000001",
+            "0100010",
+            "0011100"
+        )
+    }
+    val half = (pattern.size * px) / 2f
+    for (row in pattern.indices) {
+        for (col in pattern[row].indices) {
+            if (pattern[row][col] != '1') continue
+            drawRect(
+                color = color,
+                topLeft = Offset(center.x - half + (col * px), center.y - half + (row * px)),
+                size = androidx.compose.ui.geometry.Size(px, px)
+            )
         }
     }
 }
