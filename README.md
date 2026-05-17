@@ -29,25 +29,6 @@ In progress:
 - Additional icon/sprite kit polish
 - Cross-screen typography calibration
 
-## Screenshot Gallery
-
-> Captured from live Android build on device.
-
-### Home
-![Home](docs/screenshots/home.png)
-
-### Live
-![Live](docs/screenshots/live.png)
-
-### Map
-![Map](docs/screenshots/map.png)
-
-### Files
-![Files](docs/screenshots/files.png)
-
-### Settings
-![Settings](docs/screenshots/settings.png)
-
 ## Install APK
 
 Prebuilt APKs are published in GitHub Releases.
