@@ -1,34 +1,66 @@
 # Wardrive Analyzer Android
 
-Android-native buildout of Wardrive Analyzer Mission Control.
+Android-native Wardrive Analyzer with a pixel HUD interface, map-first workflow, and Dropbox project sync.
 
-## Current status (v0.1.0)
+## Vibe Check
+
+This build is intentionally styled as a retro operations console:
+- high-contrast pixel panels
+- dense telemetry cards
+- neon cyber HUD accents
+- isometric map interaction
+
+Target aesthetic: classic LucasArts-era UI energy with modern touch ergonomics.
+
+## Current Status (v0.1.x)
 
 Implemented:
 - Kotlin + Jetpack Compose app shell
-- Mission Control tabs: Dashboard, Evidence, Runs, Reports, Import
-- Local CSV/log import pipeline with Room persistence
-- Baseline PCAP/CAP ingest summary (packet count, EAPOL signature scan, bytes)
-- Run + summary report generation on import
+- Navigation: `Home`, `Live`, `Map`, `Files`, `Settings`
+- Pixel-art UI overhaul on Home + map surfaces
+- Custom map aggregation layer with pan/zoom/filter/select
+- Map memory stabilization for large evidence sets
+- Dropbox project discovery/sync + project selection
+- CSV/log/PCAP ingest with Room persistence
+- `wardrive_master.csv` header-aware parsing for improved PC parity
 
-Planned next:
-- Deeper PCAP protocol metadata parity (AP/station/channel extraction)
-- Rich report export parity (CSV/XLSX/KML/HTML)
-- Map visualization parity
+In progress:
+- Exact metric parity validation against PC `summary.html` / `pcap_summary.html`
+- Additional icon/sprite kit polish
+- Cross-screen typography calibration
+
+## Screenshot Gallery
+
+> Captured from live Android build on device.
+
+### Home
+![Home](docs/screenshots/home.png)
+
+### Live
+![Live](docs/screenshots/live.png)
+
+### Map
+![Map](docs/screenshots/map.png)
+
+### Files
+![Files](docs/screenshots/files.png)
+
+### Settings
+![Settings](docs/screenshots/settings.png)
 
 ## Install APK
 
 Prebuilt APKs are published in GitHub Releases.
 
-- `wardrive-analyzer-release.apk`: installable release build
-- `wardrive-analyzer-debug.apk`: debug build for testing
+- `wardrive-analyzer-release.apk`
+- `wardrive-analyzer-debug.apk`
 
-On Android device:
+On Android:
 1. Download APK from Releases.
-2. Allow install from unknown sources for your browser/file manager.
-3. Open the APK and install.
+2. Allow install from unknown sources.
+3. Open APK and install.
 
-## Build locally
+## Build Locally
 
 ```powershell
 .\gradlew.bat assembleDebug
@@ -39,14 +71,15 @@ Artifacts:
 - `app/build/outputs/apk/debug/app-debug.apk`
 - `app/build/outputs/apk/release/app-release.apk`
 
-## Function parity map
+## Dropbox Sync Notes
 
-Desktop source -> Android target
+- Home now shows project sync status only.
+- Dropbox token/root/zip configuration lives in `Settings`.
+- Zip filename can be left blank to allow archive fallback resolution.
 
-- `core/parser_logs.py` -> `ingest/WardriveLogParser.kt` (baseline complete)
-- `project_vault.py` evidence inventory -> Room entities/DAOs (baseline complete)
-- `core/project.py` run manifests -> `RunEntity` and `ReportEntity` (baseline complete)
-- `core/parser_pcap.py` -> planned `ingest/PcapIngestService.kt` (pending)
-- `core/writers.py` -> planned `export/ReportWriterService.kt` (pending)
-- `wardrive_service.py` summaries -> planned `repo/AnalyticsRepository.kt` (pending)
-- `assistant_engine.py` / `buddy_ai.py` -> planned `assistant/` module (pending)
+## Parity Map (Desktop -> Android)
+
+- `core/parser_logs.py` -> `ingest/WardriveLogParser.kt`
+- `core/parser_pcap.py` -> `ingest/PcapIngestService.kt`
+- `core/project.py` manifests -> Room entities/DAOs
+- `summary.html` / `pcap_summary.html` metrics -> Android reports/map stats (ongoing parity pass)
