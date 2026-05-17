@@ -89,6 +89,8 @@ class WardriveViewModel(
     val dropboxStatus: StateFlow<String> = _dropboxStatus.asStateFlow()
     private val _isSyncingDropbox = MutableStateFlow(false)
     val isSyncingDropbox: StateFlow<Boolean> = _isSyncingDropbox.asStateFlow()
+    private val _isRefreshingProjects = MutableStateFlow(false)
+    val isRefreshingProjects: StateFlow<Boolean> = _isRefreshingProjects.asStateFlow()
     private val _syncCompletedSignal = MutableStateFlow(0L)
     val syncCompletedSignal: StateFlow<Long> = _syncCompletedSignal.asStateFlow()
     private val _marauderTerminal = MutableStateFlow<List<String>>(emptyList())
@@ -155,11 +157,13 @@ class WardriveViewModel(
 
     fun getDropboxToken(): String = prefs.getString("token", "") ?: ""
     fun getDropboxFolder(): String = prefs.getString("folder", "/WardriveAnalyzerProjects") ?: "/WardriveAnalyzerProjects"
+    fun getDropboxZipName(): String = prefs.getString("zip_name", "") ?: ""
 
-    fun saveDropboxConfig(token: String, folder: String) {
+    fun saveDropboxConfig(token: String, folder: String, zipName: String = getDropboxZipName()) {
         prefs.edit()
             .putString("token", token.trim())
             .putString("folder", folder.trim().ifEmpty { "/WardriveAnalyzerProjects" })
+            .putString("zip_name", zipName.trim())
             .apply()
         _dropboxStatus.value = "Dropbox config saved."
         refreshDropboxProjects()
@@ -168,8 +172,10 @@ class WardriveViewModel(
     fun refreshDropboxProjects() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                _isRefreshingProjects.value = true
                 val token = getDropboxToken()
                 val root = getDropboxFolder()
+                _dropboxStatus.value = "Refreshing Dropbox projects..."
                 _mascotState.value = MarauderMascotState.SYNC
                 _mascotMessage.value = "Marauder: Sweeping Dropbox project grid..."
                 val profiles = dropboxService.listProjects(token, root, app.filesDir) { msg ->
@@ -195,6 +201,8 @@ class WardriveViewModel(
                 _dropboxStatus.value = "Marauder: project refresh failed: ${e.message ?: e.javaClass.simpleName}"
                 _mascotState.value = MarauderMascotState.WARNING
                 _mascotMessage.value = "Marauder: Project refresh failed. Check token/path and retry."
+            } finally {
+                _isRefreshingProjects.value = false
             }
         }
     }
@@ -510,6 +518,7 @@ class WardriveViewModel(
                 _mascotMessage.value = "Marauder: Pulling selected project from Dropbox..."
                 val token = getDropboxToken()
                 val root = getDropboxFolder()
+                val zipName = getDropboxZipName()
                 val activeSlug = repo.activeProjectProfile()?.slug ?: _activeProjectSlug.value
                 if (activeSlug.isNotBlank()) {
                     val pull = dropboxService.pullProject(token, root, activeSlug, app.filesDir) { msg ->
@@ -536,7 +545,7 @@ class WardriveViewModel(
                 }
 
                 // Legacy fallback while migrating older accounts.
-                val outDir = dropboxService.syncFromDropbox(token, root, app.filesDir) { msg ->
+                val outDir = dropboxService.syncFromDropbox(token, root, zipName, app.filesDir) { msg ->
                     _dropboxStatus.value = msg
                 }
                 val imported = importDirectory(outDir)
@@ -619,6 +628,7 @@ class WardriveViewModel(
                             }
                         }
                         lower.endsWith(".csv") || lower.endsWith(".log") || lower.endsWith(".txt") -> {
+                            if (!shouldParseAsEvidenceFile(file.name)) return@forEachIndexed
                             if (file.length() > 25L * 1024L * 1024L) {
                                 Log.w(tag, "Skipping oversized text-like file: ${file.absolutePath} (${file.length()} bytes)")
                                 return@forEachIndexed
@@ -654,8 +664,10 @@ class WardriveViewModel(
                                 pcapPackets += repo.importPcap(entryName, ByteArrayInputStream(data))
                             }
                             lower.endsWith(".csv") || lower.endsWith(".log") || lower.endsWith(".txt") -> {
-                                BufferedReader(InputStreamReader(ByteArrayInputStream(data))).use { reader ->
-                                    logRows += repo.importLog(entryName, reader)
+                                if (shouldParseAsEvidenceFile(entryName)) {
+                                    BufferedReader(InputStreamReader(ByteArrayInputStream(data))).use { reader ->
+                                        logRows += repo.importLog(entryName, reader)
+                                    }
                                 }
                             }
                         }
@@ -707,6 +719,19 @@ class WardriveViewModel(
     private fun isSupportedImportName(lowerName: String): Boolean {
         val ext = lowerName.substringAfterLast('.', "")
         return ext in supportedExtensions
+    }
+
+    private fun shouldParseAsEvidenceFile(name: String): Boolean {
+        val n = name.lowercase(Locale.US)
+        if (n == "wardrive_master.csv") return true
+        if (n.endsWith(".log")) return true
+        if (n.contains("wardrive") || n.contains("wigle") || n.contains("recon") || n.contains("beacon")) {
+            if (n.endsWith(".csv") || n.endsWith(".txt")) return true
+        }
+        if (n.contains("summary") || n.contains("pcap_bssid_master") || n.contains("pcap_station_master") || n.contains("pcap_per_file_summary")) {
+            return false
+        }
+        return false
     }
 
     private fun onMarauderConnected(device: MarauderDeviceInfo) {

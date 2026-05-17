@@ -24,6 +24,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     dropboxToken: String,
     dropboxFolder: String,
+    dropboxZipName: String,
     dropboxStatus: String,
     projectProfiles: List<ProjectProfileEntity>,
     activeProjectSlug: String,
@@ -31,6 +32,7 @@ fun SettingsScreen(
     isSyncingDropbox: Boolean,
     onDropboxTokenChange: (String) -> Unit,
     onDropboxFolderChange: (String) -> Unit,
+    onDropboxZipNameChange: (String) -> Unit,
     onSaveDropboxConfig: () -> Unit,
     onSyncFromDropbox: () -> Unit,
     onRefreshProjects: () -> Unit,
@@ -54,6 +56,13 @@ fun SettingsScreen(
                     value = dropboxFolder,
                     onValueChange = onDropboxFolderChange,
                     label = { Text("Dropbox Projects Root") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = dropboxZipName,
+                    onValueChange = onDropboxZipNameChange,
+                    label = { Text("Project Zip Filename") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

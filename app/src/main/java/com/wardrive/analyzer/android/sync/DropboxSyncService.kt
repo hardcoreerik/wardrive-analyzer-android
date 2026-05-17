@@ -201,6 +201,7 @@ class DropboxSyncService {
     suspend fun syncFromDropbox(
         token: String,
         remoteFolder: String,
+        preferredZipName: String?,
         appFilesDir: File,
         onStatus: (String) -> Unit = {}
     ): File = withContext(Dispatchers.IO) {
@@ -209,18 +210,48 @@ class DropboxSyncService {
             throw IllegalArgumentException("Dropbox access token is required.")
         }
         val folder = normalizeFolder(remoteFolder)
+        val preferredName = preferredZipName?.trim().orEmpty()
+        val preferredPath = if (preferredName.isBlank()) null else "$folder/${preferredName.trimStart('/')}"
         val latestPath = "$folder/latest_project.zip"
         val outDir = File(appFilesDir, "dropbox_sync").apply { mkdirs() }
         val zipFile = File(outDir, "latest_project.zip")
         onStatus("Connecting to Dropbox...")
-        downloadFile(cleanToken, latestPath, zipFile)
+        val downloadPath = try {
+            if (preferredPath != null) {
+                downloadFile(cleanToken, preferredPath, zipFile)
+                preferredPath
+            } else {
+                downloadFile(cleanToken, latestPath, zipFile)
+                latestPath
+            }
+        } catch (e: Exception) {
+            val fallback = if (preferredPath != null && !preferredPath.equals(latestPath, ignoreCase = true)) {
+                try {
+                    downloadFile(cleanToken, latestPath, zipFile)
+                    latestPath
+                } catch (_: Exception) {
+                    findLatestZipPath(cleanToken, folder)
+                }
+            } else {
+                findLatestZipPath(cleanToken, folder)
+            }
+                ?: throw RuntimeException(
+                    "Could not find requested zip (${preferredName.ifBlank { "latest_project.zip" }}) or any .zip archive in $folder",
+                    e
+                )
+            if (!fallback.equals(latestPath, ignoreCase = true) && !fallback.equals(preferredPath, ignoreCase = true)) {
+                onStatus("Marauder: requested zip not found, using ${fallback.substringAfterLast('/')}")
+                downloadFile(cleanToken, fallback, zipFile)
+            }
+            fallback
+        }
         onStatus("Extracting project archive...")
         val unzipDir = File(outDir, "latest_project").apply {
             if (exists()) deleteRecursively()
             mkdirs()
         }
         unzip(zipFile, unzipDir)
-        onStatus("Dropbox download complete.")
+        onStatus("Dropbox download complete (${downloadPath.substringAfterLast('/')}).")
         unzipDir
     }
 
@@ -327,6 +358,21 @@ class DropboxSyncService {
                     dropboxPath = "$root/$slug/Project"
                 )
             }
+    }
+
+    private fun findLatestZipPath(token: String, folder: String): String? {
+        val response = apiPost(
+            token,
+            "https://api.dropboxapi.com/2/files/list_folder",
+            JSONObject().put("path", folder).put("recursive", false).put("include_deleted", false)
+        )
+        return response.getJSONArray("entries")
+            .toJsonObjects()
+            .filter { it.optString(".tag") == "file" }
+            .filter { it.optString("name").lowercase(Locale.US).endsWith(".zip") }
+            .maxByOrNull { parseDropboxTime(it.optString("server_modified")) ?: 0L }
+            ?.optString("path_display")
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun parseProjectManifest(text: String): List<ProjectProfile> {

@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wardrive.analyzer.android.data.model.ProjectProfileEntity
+import com.wardrive.analyzer.android.marauder.MarauderConnectionStatus
 import com.wardrive.analyzer.android.ui.screens.DashboardScreen
 import com.wardrive.analyzer.android.ui.screens.EvidenceScreen
 import com.wardrive.analyzer.android.ui.screens.MarauderImportsScreen
@@ -100,9 +101,11 @@ fun WardriveApp(viewModel: WardriveViewModel) {
     val openCount by viewModel.openCount.collectAsStateWithLifecycle(initialValue = 0)
     val dropboxStatus by viewModel.dropboxStatus.collectAsStateWithLifecycle()
     val isSyncingDropbox by viewModel.isSyncingDropbox.collectAsStateWithLifecycle()
+    val isRefreshingProjects by viewModel.isRefreshingProjects.collectAsStateWithLifecycle()
     val mapState by viewModel.mapScreenState.collectAsStateWithLifecycle()
     var dropboxToken by remember { mutableStateOf(viewModel.getDropboxToken()) }
     var dropboxFolder by remember { mutableStateOf(viewModel.getDropboxFolder()) }
+    var dropboxZipName by remember { mutableStateOf(viewModel.getDropboxZipName()) }
     var pendingProjectAction by remember { mutableStateOf<ProjectTargetAction?>(null) }
     var pendingImportProjectSlug by remember { mutableStateOf<String?>(null) }
 
@@ -188,19 +191,16 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                     totalPcapPackets = totalPcapPackets,
                     highRiskRuns = highRiskRuns,
                     lastImport = runs.firstOrNull()?.name ?: "No imports yet",
-                    dropboxToken = dropboxToken,
-                    dropboxFolder = dropboxFolder,
                     dropboxStatus = dropboxStatus,
                     projectProfiles = projectProfiles,
                     activeProjectSlug = activeProjectSlug,
+                    marauderConnected = marauderConnection.status == MarauderConnectionStatus.CONNECTED,
                     syncRecords = syncRecords,
                     isSyncingDropbox = isSyncingDropbox,
-                    onDropboxTokenChange = { dropboxToken = it },
-                    onDropboxFolderChange = { dropboxFolder = it },
-                    onSaveDropboxConfig = { viewModel.saveDropboxConfig(dropboxToken, dropboxFolder) },
-                    onSyncFromDropbox = { viewModel.syncFromDropbox() },
+                    isRefreshingProjects = isRefreshingProjects,
                     onRefreshProjects = { viewModel.refreshDropboxProjects() },
-                    onSetActiveProject = { viewModel.setActiveProject(it) }
+                    onSetActiveProject = { viewModel.setActiveProject(it) },
+                    onOpenLiveTab = { selected = Tab.Live }
                 )
 
                 Tab.Live -> MarauderLiveScreen(
@@ -261,6 +261,7 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                     modifier = Modifier.padding(padding),
                     dropboxToken = dropboxToken,
                     dropboxFolder = dropboxFolder,
+                    dropboxZipName = dropboxZipName,
                     dropboxStatus = dropboxStatus,
                     projectProfiles = projectProfiles,
                     activeProjectSlug = activeProjectSlug,
@@ -268,7 +269,8 @@ fun WardriveApp(viewModel: WardriveViewModel) {
                     isSyncingDropbox = isSyncingDropbox,
                     onDropboxTokenChange = { dropboxToken = it },
                     onDropboxFolderChange = { dropboxFolder = it },
-                    onSaveDropboxConfig = { viewModel.saveDropboxConfig(dropboxToken, dropboxFolder) },
+                    onDropboxZipNameChange = { dropboxZipName = it },
+                    onSaveDropboxConfig = { viewModel.saveDropboxConfig(dropboxToken, dropboxFolder, dropboxZipName) },
                     onSyncFromDropbox = { viewModel.syncFromDropbox() },
                     onRefreshProjects = { viewModel.refreshDropboxProjects() },
                     onSetActiveProject = { viewModel.setActiveProject(it) }

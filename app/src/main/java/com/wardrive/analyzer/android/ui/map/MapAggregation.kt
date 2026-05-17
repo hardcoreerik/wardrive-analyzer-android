@@ -13,6 +13,11 @@ import kotlin.math.sqrt
 
 object MapAggregation {
     private const val EARTH_RADIUS_KM = 6371.0
+    private const val MAX_EVIDENCE_ROWS_FOR_MAP = 12000
+    private const val MAX_WARDRIVE_ROWS_FOR_MAP = 12000
+    private const val MAX_ROUTE_POINTS = 8000
+    private const val MAX_RENDER_POINTS = 6000
+    private const val MAX_ENTITY_POOL = 9000
 
     data class IsoProjectionResult(
         val normalized: List<Offset>,
@@ -28,12 +33,51 @@ object MapAggregation {
         selectedEntityId: String?,
         viewport: MapViewport
     ): MapScreenState {
-        val mapPoints = mutableListOf<MapEntityPoint>()
-        evidence.forEach { row ->
+        val mapPoints = ArrayList<MapEntityPoint>(MAX_ENTITY_POOL)
+        val recentById = LinkedHashMap<String, MapEntityPoint>(MAX_ENTITY_POOL)
+        val routeSeed = ArrayList<MapEntityPoint>(MAX_ROUTE_POINTS)
+        var wifiCount = 0
+        var bleCount = 0
+        var handshakeCount = 0
+        var gpsCount = 0
+        var strongestSignal: Int? = null
+
+        fun updateCounts(point: MapEntityPoint) {
+            when (point.type) {
+                MapEntityType.WIFI -> wifiCount += 1
+                MapEntityType.BLE -> bleCount += 1
+                MapEntityType.HANDSHAKE -> handshakeCount += 1
+                MapEntityType.GPS -> gpsCount += 1
+            }
+            point.rssi?.let { value ->
+                strongestSignal = strongestSignal?.let { maxOf(it, value) } ?: value
+            }
+        }
+
+        fun appendPoint(point: MapEntityPoint) {
+            updateCounts(point)
+            if (mapPoints.size >= MAX_ENTITY_POOL) return
+            mapPoints.add(point)
+            recentById[point.id] = point
+            if (recentById.size > MAX_ENTITY_POOL) {
+                val oldestKey = recentById.keys.firstOrNull()
+                if (oldestKey != null) recentById.remove(oldestKey)
+            }
+            if (routeSeed.size < MAX_ROUTE_POINTS && point.type == MapEntityType.GPS) {
+                routeSeed.add(point)
+            }
+        }
+
+        val evidenceWindow = if (evidence.size > MAX_EVIDENCE_ROWS_FOR_MAP) {
+            evidence.takeLast(MAX_EVIDENCE_ROWS_FOR_MAP)
+        } else {
+            evidence
+        }
+        evidenceWindow.forEach { row ->
             val lat = row.latitude
             val lon = row.longitude
             if (lat == null || lon == null) return@forEach
-            mapPoints += MapEntityPoint(
+            appendPoint(MapEntityPoint(
                 id = "e_${row.id}",
                 type = if (row.security.contains("BLE", true)) MapEntityType.BLE else MapEntityType.WIFI,
                 latitude = lat,
@@ -45,9 +89,9 @@ object MapAggregation {
                 channel = row.channel,
                 rssi = row.rssi,
                 seenAt = row.seenAt
-            )
+            ))
             if (row.security.contains("HANDSHAKE", true)) {
-                mapPoints += MapEntityPoint(
+                appendPoint(MapEntityPoint(
                     id = "h_${row.id}",
                     type = MapEntityType.HANDSHAKE,
                     latitude = lat,
@@ -59,9 +103,9 @@ object MapAggregation {
                     channel = row.channel,
                     rssi = row.rssi,
                     seenAt = row.seenAt
-                )
+                ))
             }
-            mapPoints += MapEntityPoint(
+            appendPoint(MapEntityPoint(
                 id = "g_${row.id}",
                 type = MapEntityType.GPS,
                 latitude = lat,
@@ -73,10 +117,15 @@ object MapAggregation {
                 channel = null,
                 rssi = null,
                 seenAt = row.seenAt
-            )
+            ))
         }
 
-        wardrive.forEach { row ->
+        val wardriveWindow = if (wardrive.size > MAX_WARDRIVE_ROWS_FOR_MAP) {
+            wardrive.takeLast(MAX_WARDRIVE_ROWS_FOR_MAP)
+        } else {
+            wardrive
+        }
+        wardriveWindow.forEach { row ->
             val lat = row.latitude
             val lon = row.longitude
             if (lat == null || lon == null) return@forEach
@@ -85,7 +134,7 @@ object MapAggregation {
                 (row.encryption ?: "").contains("hs", true) || (row.rawLine).contains("handshake", true) -> MapEntityType.HANDSHAKE
                 else -> MapEntityType.WIFI
             }
-            mapPoints += MapEntityPoint(
+            appendPoint(MapEntityPoint(
                 id = "m_${row.id}",
                 type = inferredType,
                 latitude = lat,
@@ -97,8 +146,8 @@ object MapAggregation {
                 channel = row.channel,
                 rssi = row.rssi,
                 seenAt = row.timestamp
-            )
-            mapPoints += MapEntityPoint(
+            ))
+            appendPoint(MapEntityPoint(
                 id = "mg_${row.id}",
                 type = MapEntityType.GPS,
                 latitude = lat,
@@ -110,26 +159,31 @@ object MapAggregation {
                 channel = null,
                 rssi = null,
                 seenAt = row.timestamp
-            )
+            ))
         }
 
-        val sortedGeo = mapPoints
+        val sortedGeo = routeSeed
             .sortedBy { it.seenAt ?: Long.MAX_VALUE }
             .distinctBy { "${it.latitude},${it.longitude}" }
+            .let { if (it.size > MAX_ROUTE_POINTS) it.takeLast(MAX_ROUTE_POINTS) else it }
 
         val routeDistance = routeDistanceKm(sortedGeo.map { it.latitude to it.longitude })
         val stats = MapSummaryStats(
             sessionCount = runsCount,
-            apCount = mapPoints.count { it.type == MapEntityType.WIFI },
-            bleCount = mapPoints.count { it.type == MapEntityType.BLE },
-            handshakeCount = mapPoints.count { it.type == MapEntityType.HANDSHAKE },
-            gpsFixCount = mapPoints.count { it.type == MapEntityType.GPS },
+            apCount = wifiCount,
+            bleCount = bleCount,
+            handshakeCount = handshakeCount,
+            gpsFixCount = gpsCount,
             distanceKm = routeDistance,
-            strongestSignalDbm = mapPoints.mapNotNull { it.rssi }.maxOrNull()
+            strongestSignalDbm = strongestSignal
         )
 
-        val filtered = mapPoints.filter { pointMatchesFilter(it, filter) }
-        val selected = mapPoints.firstOrNull { it.id == selectedEntityId }
+        val filtered = mapPoints
+            .asSequence()
+            .filter { pointMatchesFilter(it, filter) }
+            .take(MAX_RENDER_POINTS)
+            .toList()
+        val selected = selectedEntityId?.let { recentById[it] }
 
         val isoRoute = if (sortedGeo.isEmpty()) emptyList() else {
             val projected = projectToIsometric(sortedGeo.map { it.latitude to it.longitude })
@@ -138,7 +192,7 @@ object MapAggregation {
 
         return MapScreenState(
             hasGeoData = mapPoints.isNotEmpty(),
-            entities = mapPoints,
+            entities = filtered,
             filteredEntities = filtered,
             route = MapRoutePath(points = isoRoute, distanceKm = routeDistance),
             stats = stats,
